@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>KVR BUS STOP CHALLENGE - KVR Games</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:#0f172a;font-family:'Segoe UI',system-ui;color:#fff;overflow:hidden;height:100vh;display:flex;flex-direction:column;touch-action:none}
+header{height:54px;background:#020617;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:2px solid #ffcc00}
+.logo{font-weight:900;color:#ffcc00;letter-spacing:1px;font-size:14px} .logo span{color:#fff}
+.hud{display:flex;gap:8px}
+.pill{background:#1e293b;border:1px solid #334155;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.pill b{color:#ffcc00}
+#gameWrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px;gap:10px}
+#board{width:min(92vw,420px);aspect-ratio:1;background:#e2e8f0;border-radius:18px;position:relative;box-shadow:0 10px 30px rgba(0,0,0,0.5), inset 0 0 0 4px #020617;border:4px solid #ffcc00;overflow:hidden;touch-action:none}
+.cell{position:absolute;border:1px dashed rgba(0,0,0,0.06)}
+.bus{position:absolute;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;cursor:pointer;transition:transform 0.12s, box-shadow 0.12s;user-select:none;box-shadow:0 4px 0 rgba(0,0,0,0.3);border:2px solid rgba(0,0,0,0.2)}
+.bus:active{transform:scale(0.97)}
+.bus.target{border:2px solid #000;z-index:5}
+.bus.target::after{content:'KVR';position:absolute;top:2px;font-size:8px;color:#000080}
+.exit{position:absolute;right:-4px;top:42%;width:10px;height:18%;background:#22c55e;border-radius:4px 0 0 4px;z-index:2;box-shadow:inset -2px 0 4px rgba(0,0,0,0.3)}
+.exit::before{content:'EXIT ➜';position:absolute;right:12px;top:50%;transform:translateY(-50%);background:#22c55e;color:#000;font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;white-space:nowrap}
+.controls{display:flex;gap:10px;width:min(92vw,420px)}
+.btn{flex:1;height:48px;border-radius:12px;border:none;font-weight:800;font-size:13px}
+.btn:active{transform:scale(0.96)}
+#restart{background:#1e293b;color:#fff;border:1px solid #334155}
+#next{background:#ffcc00;color:#000}
+#modal{position:fixed;inset:0;background:rgba(2,6,23,0.9);backdrop-filter:blur(8px);z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;text-align:center}
+#modal.show{display:flex}
+.card{background:#0f172a;border:2px solid #ffcc00;border-radius:20px;padding:20px;width:min(90vw,360px)}
+.shopGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}
+.shopItem{background:#1e293b;border-radius:12px;padding:10px;border:2px solid transparent}
+.shopItem.unlocked{border-color:#22c55e}
+.shopItem.selected{border-color:#ffcc00}
+.levelGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0}
+.lvl{height:44px;border-radius:10px;background:#1e293b;border:1px solid #334155;display:flex;align-items:center;justify-content:center;font-weight:800}
+.lvl.locked{opacity:0.3}
+.lvl.done{background:#14532d;border-color:#22c55e}
+.lvl.active{border-color:#ffcc00;box-shadow:0 0 10px #ffcc00}
+</style>
+</head>
+<body>
+<header>
+<div class="logo">KVR <span>GAMES</span> <small style="font-size:9px;background:#ffcc00;color:#000;padding:2px 6px;border-radius:10px;margin-left:6px">BUS STOP CHALLENGE</small></div>
+<div class="hud"><div class="pill">LVL <b id="lvlTxt">1</b></div><div class="pill">MOVES <b id="moveTxt">0</b></div><div class="pill">🪙 <b id="coinTxt">0</b></div></div>
+</header>
+
+<div id="gameWrap">
+<div id="board"><div class="exit"></div></div>
+<div class="controls">
+<button class="btn" id="restart">↻ RESTART</button>
+<button class="btn" id="levelsBtn" style="background:#334155;color:#fff">☰ LEVELS</button>
+<button class="btn" id="shopBtn" style="background:#334155;color:#fff">🎨 SHOP</button>
+<button class="btn" id="next">NEXT ➜</button>
+</div>
+<p style="font-size:10px;opacity:0.5;text-align:center">Drag buses along road. Get yellow KVR bus to green EXIT. KVR Games © 2026</p>
+</div>
+
+<div id="modal">
+<div class="card" id="modalContent"></div>
+</div>
+
+<script>
+const ROWS=6, COLS=6;
+const COLORS=['#ffcc00','#ef4444','#3b82f6','#22c55e','#a855f7','#f97316','#06b6d4','#eab308'];
+const SHOP_COLORS=[
+{id:'default',color:'#ffcc00',price:0},
+{id:'red',color:'#ef4444',price:50},
+{id:'blue',color:'#3b82f6',price:50},
+{id:'green',color:'#22c55e',price:80},
+{id:'purple',color:'#a855f7',price:80},
+{id:'orange',color:'#f97316',price:120},
+];
+
+let state={
+ level:1,
+ moves:0,
+ coins:parseInt(localStorage.getItem('kvr_coins')||'0'),
+ unlockedLevels:parseInt(localStorage.getItem('kvr_unlocked')||'1'),
+ unlockedColors:JSON.parse(localStorage.getItem('kvr_colors')||'["default"]'),
+ selectedColor:localStorage.getItem('kvr_selColor')||'default',
+ buses:[],
+ grid:[],
+ dragging:null,
+ dragOffset:{x:0,y:0},
+ cellSize:0
+};
+
+// 10 Levels - {x,y,len,dir} dir 0=horizontal 1=vertical, first is always target
+const LEVELS=[
+ // L1 easy
+ [{x:0,y:2,len:2,dir:0},{x:2,y:0,len:2,dir:1},{x:3,y:3,len:2,dir:1},{x:5,y:1,len:2,dir:1}],
+ // L2
+ [{x:1,y:2,len:2,dir:0},{x:0,y:0,len:2,dir:1},{x:3,y:0,len:3,dir:1},{x:4,y:3,len:2,dir:0},{x:2,y:4,len:3,dir:0}],
+ // L3
+ [{x:0,y:2,len:2,dir:0},{x:2,y:0,len:2,dir:0},{x:2,y:1,len:2,dir:1},{x:4,y:1,len:3,dir:1},{x:1,y:3,len:2,dir:1},{x:3,y:4,len:2,dir:0}],
+ // L4
+ [{x:0,y:2,len:2,dir:0},{x:1,y:0,len:3,dir:1},{x:3,y:0,len:2,dir:0},{x:5,y:0,len:3,dir:1},{x:2,y:3,len:3,dir:0},{x:4,y:4,len:2,dir:0}],
+ // L5
+ [{x:0,y:2,len:2,dir:0},{x:2,y:0,len:2,dir:1},{x:3,y:0,len:2,dir:1},{x:5,y:0,len:2,dir:1},{x:1,y:3,len:3,dir:0},{x:4,y:3,len:2,dir:1},{x:2,y:5,len:2,dir:0}],
+ // L6
+ [{x:1,y:2,len:2,dir:0},{x:0,y:0,len:2,dir:1},{x:3,y:0,len:3,dir:1},{x:5,y:0,len:2,dir:1},{x:2,y:3,len:2,dir:1},{x:3,y:3,len:2,dir:0},{x:0,y:4,len:3,dir:0}],
+ // L7
+ [{x:0,y:2,len:2,dir:0},{x:2,y:0,len:3,dir:0},{x:5,y:0,len:2,dir:1},{x:1,y:1,len:2,dir:1},{x:3,y:1,len:3,dir:1},{x:1,y:3,len:2,dir:1},{x:3,y:4,len:2,dir:0},{x:4,y:5,len:2,dir:0}],
+ // L8
+ [{x:0,y:2,len:2,dir:0},{x:2,y:0,len:2,dir:1},{x:3,y:0,len:2,dir:1},{x:4,y:1,len:2,dir:0},{x:0,y:3,len:3,dir:0},{x:3,y:3,len:3,dir:1},{x:5,y:4,len:2,dir:1},{x:1,y:5,len:3,dir:0}],
+ // L9 HARD
+ [{x:0,y:2,len:2,dir:0},{x:2,y:0,len:2,dir:1},{x:3,y:0,len:2,dir:0},{x:5,y:0,len:3,dir:1},{x:1,y:1,len:3,dir:1},{x:2,y:3,len:2,dir:0},{x:4,y:3,len:2,dir:1},{x:0,y:4,len:2,dir:0},{x:2,y:5,len:3,dir:0}],
+ // L10 FINAL
+ [{x:0,y:2,len:2,dir:0},{x:2,y:0,len:3,dir:0},{x:2,y:1,len:3,dir:1},{x:5,y:0,len:3,dir:1},{x:0,y:3,len:2,dir:1},{x:1,y:3,len:2,dir:0},{x:3,y:3,len:2,dir:1},{x:4,y:4,len:2,dir:0},{x:0,y:5,len:3,dir:0}]
+];
+
+const board=document.getElementById('board');
+function playTone(f,d=0.1){try{let a=new (window.AudioContext||window.webkitAudioContext)();let o=a.createOscillator();o.frequency.value=f;o.connect(a.destination);o.start();o.stop(a.currentTime+d);}catch(e){}}
+
+function buildGrid(){
+ state.grid=Array.from({length:ROWS},()=>Array(COLS).fill(-1));
+ state.buses.forEach((b,i)=>{
+  for(let k=0;k<b.len;k++){
+   let x=b.x + (b.dir==0?k:0), y=b.y + (b.dir==1?k:0);
+   if(y>=0&&y<ROWS&&x>=0&&x<COLS) state.grid[y][x]=i;
+  }
+ });
+}
+
+function render(){
+ board.querySelectorAll('.bus').forEach(e=>e.remove());
+ state.cellSize=board.clientWidth/COLS;
+ state.buses.forEach((b,i)=>{
+  let div=document.createElement('div');
+  div.className='bus'+(i==0?' target':'');
+  div.dataset.i=i;
+  let selColor=SHOP_COLORS.find(c=>c.id==state.selectedColor)?.color||'#ffcc00';
+  div.style.background=i==0?selColor:COLORS[i%COLORS.length];
+  div.style.left=(b.x*state.cellSize+2)+'px';
+  div.style.top=(b.y*state.cellSize+2)+'px';
+  div.style.width=(b.dir==0? b.len*state.cellSize-4 : state.cellSize-4)+'px';
+  div.style.height=(b.dir==1? b.len*state.cellSize-4 : state.cellSize-4)+'px';
+  div.textContent=i==0?'🚌':'';
+  board.appendChild(div);
+ });
+ document.getElementById('lvlTxt').textContent=state.level;
+ document.getElementById('moveTxt').textContent=state.moves;
+ document.getElementById('coinTxt').textContent=state.coins;
+}
+
+function loadLevel(n){
+ state.level=n; state.moves=0;
+ state.buses=JSON.parse(JSON.stringify(LEVELS[n-1]));
+ buildGrid(); render();
+}
+
+function canMove(idx,dx,dy){
+ let b=state.buses[idx];
+ if(b.dir==0 && dy!=0) return false;
+ if(b.dir==1 && dx!=0) return false;
+ let nx=b.x+dx, ny=b.y+dy;
+ if(nx<0||ny<0) return false;
+ if(b.dir==0 && nx+b.len>COLS) return i=>false; // allow exit for target
+ if(b.dir==0 && nx+b.len>COLS && idx!=0) return false;
+ if(b.dir==1 && ny+b.len>ROWS) return false;
+ // check collision ignoring self
+ for(let k=0;k<b.len;k++){
+  let cx=nx + (b.dir==0?k:0), cy=ny + (b.dir==1?k:0);
+  if(cx<0||cx>=COLS||cy<0||cy>=ROWS) continue;
+  if(state.grid[cy][cx]!=-1 && state.grid[cy][cx]!=idx) return false;
+ }
+ return true;
+}
+
+function checkWin(){
+ let b=state.buses[0];
+ if(b.x + b.len >= COLS){ // reached exit
+  let earned=Math.max(10, 50-state.moves);
+  state.coins+=earned;
+  localStorage.setItem('kvr_coins',state.coins);
+  if(state.level>=state.unlockedLevels){state.unlockedLevels=state.level+1; localStorage.setItem('kvr_unlocked',state.unlockedLevels);}
+  localStorage.setItem('kvr_colors',JSON.stringify(state.unlockedColors));
+  playTone(800,0.3); setTimeout(()=>playTone(1000,0.4),150);
+  showWin(earned);
+ }
+}
+
+function showWin(earned){
+ document.getElementById('modal').classList.add('show');
+ document.getElementById('modalContent').innerHTML=`
+ <h2 style="color:#ffcc00">🚌 PARKED!</h2>
+ <p style="margin:10px 0;opacity:0.8">Level ${state.level} cleared in ${state.moves} moves</p>
+ <div style="font-size:32px;margin:10px">+${earned} 🪙</div>
+ <button class="btn" style="background:#ffcc00;color:#000;width:100%;margin-top:10px" onclick="nextLevel()">NEXT LEVEL ➜</button>
+ <button class="btn" style="background:#1e293b;color:#fff;width:100%;margin-top:8px" onclick="closeModal()">CONTINUE</button>
+ `;
+}
+
+function nextLevel(){
+ closeModal();
+ if(state.level<LEVELS.length) loadLevel(state.level+1);
+ else showAllDone();
+}
+
+function showAllDone(){
+ document.getElementById('modal').classList.add('show');
+ document.getElementById('modalContent').innerHTML=`<h2>🏆 KVR CHAMPION!</h2><p style="margin:10px 0">All 10 levels cleared! You are official Kalvarayan Hills Driver!</p><button class="btn" style="background:#ffcc00;color:#000;width:100%" onclick="closeModal();loadLevel(1)">PLAY AGAIN</button>`;
+}
+
+function closeModal(){document.getElementById('modal').classList.remove('show')}
+
+// DRAG LOGIC
+let startPos={x:0,y:0}, startBus={x:0,y:0};
+board.addEventListener('pointerdown',e=>{
+ let t=e.target.closest('.bus'); if(!t) return;
+ let i=parseInt(t.dataset.i);
+ state.dragging=i;
+ startPos={x:e.clientX,y:e.clientY};
+ startBus={x:state.buses[i].x,y:state.buses[i].y};
+ t.setPointerCapture(e.pointerId);
+});
+board.addEventListener('pointermove',e=>{
+ if(state.dragging===null) return;
+ let i=state.dragging, b=state.buses[i];
+ let dx=e.clientX-startPos.x, dy=e.clientY-startPos.y;
+ let cellsX=Math.round(dx/state.cellSize), cellsY=Math.round(dy/state.cellSize);
+ let nx=startBus.x + (b.dir==0?cellsX:0), ny=startBus.y + (b.dir==1?cellsY:0);
+ // clamp step by step
+ let stepX=Math.sign(nx-b.x), stepY=Math.sign(ny-b.y);
+ while(b.x!=nx || b.y!=ny){
+  let tryX=b.x+ (b.dir==0?stepX:0), tryY=b.y+ (b.dir==1?stepY:0);
+  if(canMove(i,tryX-b.x,tryY-b.y) || (i==0 && tryX+b.len>COLS && b.y==2)){ // allow exit row
+   b.x=tryX; b.y=tryY; buildGrid(); render(); state.moves++; playTone(300+state.moves*5,0.05); document.getElementById('moveTxt').textContent=state.moves;
+   if(b.x!=nx) continue; if(b.y!=ny) continue;
+  }
+  break;
+ }
+ if(i==0) checkWin();
+});
+board.addEventListener('pointerup',()=>{state.dragging=null});
+
+// Buttons
+document.getElementById('restart').onclick=()=>loadLevel(state.level);
+document.getElementById('next').onclick=()=>{if(state.level<LEVELS.length) loadLevel(state.level+1); else showAllDone();};
+
+document.getElementById('levelsBtn').onclick=()=>{
+ document.getElementById('modal').classList.add('show');
+ let html=`<h3 style="color:#ffcc00">SELECT LEVEL</h3><div class="levelGrid">`;
+ for(let i=1;i<=LEVELS.length;i++){
+  let cls='lvl'; if(i>state.unlockedLevels) cls+=' locked'; if(i<state.unlockedLevels) cls+=' done'; if(i==state.level) cls+=' active';
+  html+=`<div class="${cls}" onclick="if(${i}<=${state.unlockedLevels}){closeModal();loadLevel(${i})}">${i<=state.unlockedLevels?i:'🔒'}</div>`;
+ }
+ html+=`</div><button class="btn" style="background:#1e293b;color:#fff;width:100%;margin-top:10px" onclick="closeModal()">CLOSE</button>`;
+ document.getElementById('modalContent').innerHTML=html;
+};
+
+document.getElementById('shopBtn').onclick=()=>{
+ document.getElementById('modal').classList.add('show');
+ let html=`<h3 style="color:#ffcc00">🎨 BUS COLOR SHOP</h3><p style="font-size:11px;opacity:0.6">Coins: ${state.coins} 🪙</p><div class="shopGrid">`;
+ SHOP_COLORS.forEach(c=>{
+  let unlocked=state.unlockedColors.includes(c.id);
+  let selected=state.selectedColor==c.id;
+  html+=`<div class="shopItem ${unlocked?'unlocked':''} ${selected?'selected':''}" onclick="buyColor('${c.id}')">
+  <div style="width:100%;height:30px;background:${c.color};border-radius:8px"></div>
+  <div style="font-size:10px;margin-top:4px;font-weight:800">${c.id.toUpperCase()}</div>
+  <div style="font-size:10px">${unlocked?(selected?'✓ SELECTED':'OWNED'):c.price+' 🪙'}</div>
+  </div>`;
+ });
+ html+=`</div><button class="btn" style="background:#1e293b;color:#fff;width:100%" onclick="closeModal()">CLOSE</button>`;
+ document.getElementById('modalContent').innerHTML=html;
+};
+
+window.buyColor=(id)=>{
+ let c=SHOP_COLORS.find(x=>x.id==id);
+ if(state.unlockedColors.includes(id)){state.selectedColor=id; localStorage.setItem('kvr_selColor',id); render(); document.getElementById('shopBtn').click(); return;}
+ if(state.coins>=c.price){state.coins-=c.price; state.unlockedColors.push(id); state.selectedColor=id; localStorage.setItem('kvr_coins',state.coins); localStorage.setItem('kvr_colors',JSON.stringify(state.unlockedColors)); localStorage.setItem('kvr_selColor',id); playTone(600,0.2); render(); document.getElementById('shopBtn').click(); document.getElementById('coinTxt').textContent=state.coins;} else {alert('Not enough coins! Play more levels! 🪙');}
+};
+window.closeModal=closeModal; window.loadLevel=loadLevel; window.nextLevel=nextLevel;
+
+// init
+loadLevel(state.unlockedLevels>LEVELS.length?1:1);
+window.addEventListener('resize',render);
+</script>
+</body>
+</html>
